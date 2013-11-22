@@ -7,6 +7,7 @@ local originalHatchCooldown = kHatchCooldown
 local originalAlienSpawnTime = kAlienSpawnTime
 local winOrLoseOccurredRecently
 local md
+local botAdvisory
 
 local Plugin = {}
 
@@ -61,12 +62,19 @@ local function removeBots(players, count)
 	end)
 end
 
-function Plugin:ClientConnect(client)
+function Plugin:ClientConfirmConnect(client)
 	if getTotalNumberOfBots() > 0 and not TGNS.GetIsClientVirtual(client) and getTotalNumberOfHumans() >= PLAYER_COUNT_THRESHOLD and TGNS.IsGameInProgress() and not winOrLoseOccurredRecently then
 		md:ToAllNotifyInfo(string.format("Server has seeded to %s players. Bots surrender!", PLAYER_COUNT_THRESHOLD))
-		Shine.Plugins.votesurrender:Surrender(kAlienTeamType)
+		Shine.Plugins.winorlose:CallWinOrLose(kAlienTeamType)
 		winOrLoseOccurredRecently = true
 		TGNS.ScheduleAction(65, function() winOrLoseOccurredRecently = false end)
+	elseif getTotalNumberOfBots() > 0 and not TGNS.GetIsClientVirtual(client) then
+		local player = TGNS.GetPlayer(client)
+		md:ToPlayerNotifyInfo(player, botAdvisory)
+		TGNS.ScheduleAction(5, function() md:ToPlayerNotifyInfo(player, botAdvisory) end)
+		TGNS.ScheduleAction(10, function() md:ToPlayerNotifyInfo(player, botAdvisory) end)
+		TGNS.ScheduleAction(20, function() md:ToPlayerNotifyInfo(player, botAdvisory) end)
+		TGNS.ScheduleAction(40, function() md:ToPlayerNotifyInfo(player, botAdvisory) end)
 	end
 end
 
@@ -74,7 +82,6 @@ function Plugin:JoinTeam(gamerules, player, newTeamNumber, force, shineForce)
 	local client = TGNS.GetClient(player)
 	if not (force or shineForce) then
 		if getTotalNumberOfBots() > 0 and TGNS.IsGameplayTeamNumber(newTeamNumber) and not TGNS.GetIsClientVirtual(client) and not force then
-			md:ToPlayerNotifyInfo(player, string.format("Everyone plays Marines against bots until the server seeds to %s players.", PLAYER_COUNT_THRESHOLD))
 			if newTeamNumber ~= kMarineTeamType then
 				return false
 			end
@@ -116,9 +123,6 @@ function Plugin:CreateCommands()
 			local proposedTotalCount = getTotalNumberOfBots() + countModifier
 			countModifier = proposedTotalCount <= BOT_COUNT_THRESHOLD and countModifier or (countModifier - (proposedTotalCount - BOT_COUNT_THRESHOLD))
 			if countModifier > 0 then
-				setBotConfig()
-				local command = string.format("addbot %s %s", countModifier, kAlienTeamType)
-				TGNS.ExecuteServerCommand(command)
 				if not TGNS.IsGameInProgress() then
 					local humanPlayers = TGNS.Where(players, function(p)
 						local client = TGNS.GetClient(p)
@@ -129,6 +133,11 @@ function Plugin:CreateCommands()
 					end)
 					Shine.Plugins.forceroundstart:ForceRoundStart()
 				end
+				setBotConfig()
+				local command = string.format("addbot %s %s", countModifier, kAlienTeamType)
+				TGNS.ScheduleAction(TGNS.IsGameInProgress() and 0 or 2, function()
+					TGNS.ExecuteServerCommand(command)
+				end)
 			else
 				removeBots(players, math.abs(countModifier))
 			end
@@ -160,6 +169,7 @@ function Plugin:Initialise()
 	md = TGNSMessageDisplayer.Create("BOTS")
 	TGNS.ScheduleAction(10, setOriginalConfig)
 	self:CreateCommands()
+	botAdvisory = string.format("Server switches to NS after %s players join.", PLAYER_COUNT_THRESHOLD)
     return true
 end
 

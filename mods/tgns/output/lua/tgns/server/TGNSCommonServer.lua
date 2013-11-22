@@ -150,14 +150,6 @@ function TGNS.GetPlayersOnOtherPlayingTeam(player, playerList)
 	return result
 end
 
-function TGNS.Select(elements, projector)
-	local result = {}
-	TGNS.DoFor(elements, function(e)
-		table.insert(result, projector(e))
-	end)
-	return result
-end
-
 function TGNS.GetPlayerScorePerMinute(player)
 	local result
 	local gameDurationInSeconds = TGNS.GetCurrentGameDurationInSeconds()
@@ -473,6 +465,11 @@ function TGNS.RespawnPlayer(player)
 	GetGamerules():RespawnPlayer(player)
 end
 
+function TGNS.GetTeamFromTeamNumber(teamNumber)
+	local result = GetGamerules():GetTeam(teamNumber)
+	return result
+end
+
 function TGNS.SendToRandomTeam(player)
 	local playerList = TGNS.GetPlayerList()
 	local marinesCount = #TGNS.GetMarineClients(playerList)
@@ -693,6 +690,23 @@ function TGNS.IsClientTempAdmin(client)
 	return result
 end
 
+function TGNS.HasSteamIdSignedPrimerWithGames(steamId)
+	local result = TGNS.HasSteamIdSignedPrimer(steamId)
+	if result == true and Shine.Plugins.Balance and Shine.Plugins.Balance.GetTotalGamesPlayedBySteamId then
+		result = Shine.Plugins.Balance.GetTotalGamesPlayedBySteamId(steamId) >= 10
+	end
+	return result
+end
+
+function TGNS.HasClientSignedPrimerWithGames(client)
+	local result = false
+	if client ~= nil then
+		local steamId = TGNS.GetClientSteamId(client)
+		result = TGNS.HasSteamIdSignedPrimerWithGames(steamId)
+	end
+	return result
+end
+
 function TGNS.HasSteamIdSignedPrimer(steamId)
 	local result = Shine.Plugins.permissions:IsSteamIdInGroup(steamId, "primer_group")
 	return result
@@ -840,16 +854,6 @@ function TGNS.SortAscending(elements, sortFunction)
 	end)
 end
 
-function TGNS.GetLast(elements)
-	local result = elements[#elements]
-	return result
-end
-
-function TGNS.GetFirst(elements)
-	local result = elements[1]
-	return result
-end
-
 function TGNS.ElementIsFoundBeforeIndex(elements, element, index)
 	local result = false
 	TGNS.DoFor(elements, function(e, i)
@@ -946,12 +950,12 @@ function TGNS.GetLastMatchingClient(playerList, predicate)
 	return result
 end
 
-function TGNS.UpdateScoreboard(player)
+function TGNS.AnnouncePlayerAsHavingNewScoreboardData(player)
 	player:SetScoreboardChanged(true)
 end
 
 function TGNS.UpdateAllScoreboards()
-	TGNS.DoFor(TGNS.GetPlayerList(), TGNS.UpdateScoreboard)
+	TGNS.DoFor(TGNS.GetPlayerList(), TGNS.AnnouncePlayerAsHavingNewScoreboardData)
 end
 
 function TGNS.GetTeamClients(teamNumber, playerList)
@@ -983,6 +987,11 @@ end
 
 function TGNS.GetReadyRoomPlayers(playerList)
 	local result = TGNS.GetPlayers(TGNS.GetReadyRoomClients(playerList))
+	return result
+end
+
+function TGNS.GetSpectatorPlayers(playerList)
+	local result = TGNS.GetPlayers(TGNS.GetSpectatorClients(playerList))
 	return result
 end
 
@@ -1100,6 +1109,11 @@ function TGNS.GetPlayerMatchingSteamId(steamId, team)
 
 	return match
 
+end
+
+function TGNS.GetClientById(clientId)
+	local result = Server.GetClientById(clientId)
+	return result
 end
 
 function TGNS.GetPlayerByGameId(id, teamNumber)

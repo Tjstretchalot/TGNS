@@ -7,6 +7,10 @@ local RECENT_BALANCE_DURATION_IN_SECONDS = 15
 local NS2STATS_SCORE_PER_MINUTE_VALID_DATA_THRESHOLD = 30
 local LOCAL_DATAPOINTS_COUNT_THRESHOLD = 10
 local totalGamesPlayedCache = {}
+local mayBalanceAt = 0
+local FIRSTCLIENT_TIME_BEFORE_BALANCE = 30
+local GAMEEND_TIME_BEFORE_BALANCE = TGNS.ENDGAME_TIME_TO_READYROOM + 10
+local firstClientProcessed = false
 
 local pdr = TGNSPlayerDataRepository.Create("balance", function(balance)
 	balance.wins = balance.wins ~= nil and balance.wins or 0
@@ -22,15 +26,22 @@ Balance = {}
 function Balance.IsInProgress()
 	return balanceInProgress
 end
-function Balance.GetTotalGamesPlayed(client)
-	local result = TGNS.GetIsClientVirtual(client) and 0 or totalGamesPlayedCache[client]
-	if not result then
-		local steamId = TGNS.GetClientSteamId(client)
-		local data = pdr:Load(steamId)
-		local result = data.total
-		totalGamesPlayedCache[client] = result
+function Balance.GetTotalGamesPlayedBySteamId(steamId)
+	local result = 0
+	if steamId ~= nil and steamId ~= 0 then
+		result = totalGamesPlayedCache[steamId]
+		if result == nil then
+			local data = pdr:Load(steamId)
+			result = data.total
+			totalGamesPlayedCache[steamId] = result
+		end
 	end
-	return result or 0
+	return result
+end
+function Balance.GetTotalGamesPlayed(client)
+	local steamId = TGNS.GetClientSteamId(client)
+	local result = Balance.GetTotalGamesPlayedBySteamId(steamId)
+	return result
 end
 
 local addWinToBalance = function(balance)
@@ -215,6 +226,12 @@ local function svBalance(client)
 	local player = TGNS.GetPlayer(client)
 	if balanceInProgress then
 		md:ToPlayerNotifyError(player, "Balance is already in progress.")
+	elseif BalanceStartedRecently() then
+		md:ToPlayerNotifyError(player, string.format("Balance has a server-wide cooldown of %s seconds.", RECENT_BALANCE_DURATION_IN_SECONDS))
+	elseif (Shine.Plugins.captains and Shine.Plugins.captains.IsCaptainsModeEnabled and Shine.Plugins.captains.IsCaptainsModeEnabled()) then
+		md:ToPlayerNotifyError(player, "You may not Balance during Captains.")
+	elseif mayBalanceAt > Shared.GetTime() then
+		md:ToPlayerNotifyError(player, "Wait a bit to let players join teams of choice.")
 	else
 		local gameState = GetGamerules():GetGameState()
 		if gameState == kGameState.NotStarted or gameState == kGameState.PreGame then
@@ -243,6 +260,7 @@ function Plugin:SetGameState(gamerules, state, oldState)
 end
 
 function Plugin:EndGame(gamerules, winningTeam)
+	mayBalanceAt = Shared.GetTime() + GAMEEND_TIME_BEFORE_BALANCE
 	TGNS.DoForClientsWithId(TGNS.GetPlayingClients(TGNS.GetPlayerList()), function(c, steamId)
 		if TGNS.Has(steamIdsWhichStartedGame, steamId) then
 			local player = TGNS.GetPlayer(c)
@@ -283,6 +301,10 @@ TGNSScoreboardPlayerHider.RegisterHidingPredicate(function(targetPlayer, message
 end)
 
 function Plugin:ClientConfirmConnect(client)
+	if not firstClientProcessed then
+		mayBalanceAt = Shared.GetTime() + FIRSTCLIENT_TIME_BEFORE_BALANCE
+		firstClientProcessed = true
+	end
 	local playerHasTooFewLocalScoresPerMinute = TGNS.PlayerAction(client, function(p) return #GetPlayerBalance(p).scoresPerMinute < LOCAL_DATAPOINTS_COUNT_THRESHOLD end)
 	if playerHasTooFewLocalScoresPerMinute then
 		local steamId = TGNS.GetClientSteamId(client)

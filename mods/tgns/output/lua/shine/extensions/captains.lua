@@ -12,6 +12,7 @@ local readyCaptainClients
 local timeAtWhichToForceRoundStart
 local SECONDS_ALLOWED_BEFORE_FORCE_ROUND_START = 300
 local whenToAllowTeamJoins = 0
+local lastPitches = {}
 
 local function setCaptainsGameConfig()
 	if not originalForceEvenTeamsOnJoinSetting then
@@ -32,15 +33,17 @@ function disableCaptainsMode()
 end
 
 local function startGame()
-	timeAtWhichToForceRoundStart = 0
-	TGNS.ScheduleAction(2, function()
-		setOriginalConfig()
-		TGNS.ForceGameStart()
-		TGNS.ScheduleAction(kCountDownLength + 2, function()
-			readyTeams["Marines"] = false
-			readyTeams["Aliens"] = false
+	if timeAtWhichToForceRoundStart and timeAtWhichToForceRoundStart ~= 0 then
+		timeAtWhichToForceRoundStart = 0
+		TGNS.ScheduleAction(2, function()
+			setOriginalConfig()
+			TGNS.ForceGameStart()
+			TGNS.ScheduleAction(kCountDownLength + 2, function()
+				readyTeams["Marines"] = false
+				readyTeams["Aliens"] = false
+			end)
 		end)
-	end)
+	end
 end
 
 local function bothTeamsAreReady()
@@ -92,9 +95,10 @@ local function enableCaptainsMode(nameOfEnabler, captain1Client, captain2Client)
 	captainsGamesFinished = 0
 	TGNS.DoFor(captainClients, function(c)
 		TGNS.AddTempGroup(c, "captains_group")
-		TGNS.ScheduleAction(10, function()
-			TGNS.PlayerAction(c, function(p) md:ToPlayerNotifyInfo(p, "Captains: Use sh_setteam to force anyone's team.") end)
-		end)
+		TGNS.ScheduleAction(10, function() TGNS.PlayerAction(c, function(p) md:ToPlayerNotifyInfo(p, "Captains: Look straight down when picking players.") end) end)
+		TGNS.ScheduleAction(20, function() TGNS.PlayerAction(c, function(p) md:ToPlayerNotifyInfo(p, "Captains: Look straight down when picking players.") end) end)
+		TGNS.ScheduleAction(30, function() TGNS.PlayerAction(c, function(p) md:ToPlayerNotifyInfo(p, "Captains: Use sh_setteam if you need to force anyone to a team.") end) end)
+		TGNS.ScheduleAction(40, function() TGNS.PlayerAction(c, function(p) md:ToPlayerNotifyInfo(p, "Captains: Look straight down when picking players.") end) end)
 	end)
 	md:ToAllNotifyInfo(string.format("%s enabled Captains Game! Pick teams and play two rounds!", nameOfEnabler))
 	TGNS.ScheduleAction(3, function()
@@ -117,7 +121,7 @@ local function getDescriptionOfWhatElseIsNeededToPlayCaptains(headlineReadyClien
 end
 
 local function updateCaptainsReadyProgress(readyClient)
-	local playingClients = TGNS.Where(TGNS.GetClientList(), function(c) return not TGNS.PlayerAction(c, TGNS.IsPlayerSpectator) end)
+	local playingClients = TGNS.GetClients(TGNS.Where(TGNS.GetPlayerList(), function(p) return not (TGNS.IsPlayerSpectator(p) or TGNS.IsPlayerAFK(p)) end))
 	local playingReadyCaptainClients = TGNS.Where(playingClients, function(c) return TGNS.Has(readyCaptainClients, c) end)
 	local playingReadyPlayerClients = TGNS.Where(playingClients, function(c) return TGNS.Has(readyPlayerClients, c) end)
 	local descriptionOfWhatElseIsNeededToPlayCaptains = getDescriptionOfWhatElseIsNeededToPlayCaptains(readyClient, playingClients, #playingReadyPlayerClients, #playingReadyCaptainClients)
@@ -154,6 +158,7 @@ local function addReadyPlayerClient(client)
 	else
 		updateCaptainsReadyProgress(client)
 	end
+	TGNS.UpdateAllScoreboards()
 end
 
 local function addReadyCaptainClient(client)
@@ -335,6 +340,8 @@ function Plugin:CreateCommands()
 		local player = TGNS.GetPlayer(client)
 		if Shine.Plugins.mapvote:VoteStarted() then
 			md:ToPlayerNotifyError(player, "Captains Game requests cannot be managed during a map vote.")
+		elseif TGNS.IsPlayerSpectator(player) then
+			md:ToPlayerNotifyError(player, "You may not use this command as a spectator.")
 		else
 			addReadyPlayerClient(client)
 		end
@@ -458,6 +465,11 @@ function Plugin:ClientConfirmConnect(client)
 	//TGNS.UpdateAllScoreboards()
 end
 
+function Plugin:OnProcessMove(player, input)
+	local client = TGNS.GetClient(player)
+	lastPitches[client] = input.pitch
+end
+
 function Plugin:Initialise()
     self.Enabled = true
 	md = TGNSMessageDisplayer.Create("CAPTAINS")
@@ -473,6 +485,28 @@ function Plugin:Initialise()
 			return oldIsImmune(self, Config, Player, Client)
 		end
 	end
+
+	TGNS.RegisterEventHook("LookDownChanged", function(player, isLookingDown)
+		if captainsModeEnabled and not TGNS.IsGameInProgress() then
+			TGNS.UpdateAllScoreboards()
+		end
+	end)
+
+	TGNSScoreboardPlayerHider.RegisterHidingPredicate(function(targetPlayer, message)
+		local result = false
+		if captainsModeEnabled and not TGNS.IsGameInProgress() then
+			local targetClient = TGNS.GetClient(targetPlayer)
+			local messageClient = TGNS.GetClientById(message.clientId)
+			if TGNS.Has(captainClients, targetClient) then
+				if Shine.Plugins.lookdown and Shine.Plugins.lookdown.IsPlayerLookingDown and Shine.Plugins.lookdown:IsPlayerLookingDown(targetPlayer) then
+					if not TGNS.ClientIsInGroup(messageClient, "captainsgame_group") then
+						result = true
+					end
+				end
+			end
+		end
+		return result
+	end)
 
     return true
 end

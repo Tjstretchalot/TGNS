@@ -1,7 +1,7 @@
 local md = TGNSMessageDisplayer.Create()
 local pdrCache = {}
 
-local function CreateRole(displayName, candidatesDescription, groupName, messagePrefix, optInConsoleCommandName, persistedDataName, isClientOneOfQuery, isClientBlockerQuery, minimumRequirementsQuery)
+local function CreateRole(displayName, candidatesDescription, groupName, messagePrefix, optInConsoleCommandName, persistedDataName, isClientOneOfQuery, isClientBlockerQuery, minimumRequirementsQuery, chargeStatement)
 	local result = {}
 	pdrCache[persistedDataName] = {}
 	local pdr = TGNSPlayerDataRepository.Create(persistedDataName, function(data)
@@ -15,6 +15,7 @@ local function CreateRole(displayName, candidatesDescription, groupName, message
 	result.groupName = groupName
 	result.messagePrefix = messagePrefix
 	result.optInConsoleCommandName = optInConsoleCommandName
+	result.chargeStatement = chargeStatement
 	result.IsClientOneOf = isClientOneOfQuery
 	result.IsClientBlockerOf = isClientBlockerQuery
 	function result:IsTeamEligible(teamPlayers) return TGNS.GetLastMatchingClient(teamPlayers, self.IsClientBlockerOf) == nil end
@@ -47,9 +48,10 @@ local roles = {
 	//	, "tempadmin"
 	//	, TGNS.IsClientTempAdmin
 	//	, TGNS.IsClientAdmin
-	//	, function(client) return TGNS.IsClientSM(client) and TGNS.HasClientSignedPrimer(client) end),
+	//	, function(client) return TGNS.IsClientSM(client) and TGNS.HasClientSignedPrimerWithGames(client) end
+	//  , "As Temp Admin, your responsibility now is to enforce the rules."),
 	CreateRole("Guardian"
-		, "TGNS Primer signers who've played >=15 full rounds on this server"
+		, "TGNS Primer signers who've played >=40 full rounds on this server"
 		, "guardian_group"
 		, "GUARDIAN"
 		, "sh_guardian"
@@ -58,8 +60,9 @@ local roles = {
 		, function(client) return false end
 		, function(client)
 			local totalGamesPlayed = Balance.GetTotalGamesPlayed(client)
-			return TGNS.HasClientSignedPrimer(client) and totalGamesPlayed >= 15 and not TGNS.IsClientAdmin(client) and not TGNS.IsClientGuardian(client)
-		end)
+			return TGNS.HasClientSignedPrimerWithGames(client) and totalGamesPlayed >= 40 and not TGNS.IsClientAdmin(client) and not TGNS.IsClientGuardian(client)
+		end
+		, "As Guardian, your responsibility now is to enforce the rules.")
 }
 
 
@@ -80,7 +83,9 @@ end
 
 local function AddToClient(client, role)
 	TGNS.AddTempGroup(client, role.groupName)
-	TGNS.PlayerAction(client, function(p) md:ToPlayerNotifyInfo(p, string.format("You are a %s. Apply exemplarily.", role.displayName)) end)
+	local player = TGNS.GetPlayer(client)
+	md:ToPlayerNotifyInfo(player, string.format("You are a %s. Apply exemplarily.", role.displayName))
+	md:ToPlayerNotifyInfo(player, role.chargeStatement)
 	TGNS.UpdateAllScoreboards()
 end
 
@@ -115,7 +120,7 @@ local function ToggleOptIn(client, role)
 		end
 	end
 	local roleMd = TGNSMessageDisplayer.Create(role.messagePrefix)
-	roleMd:ToPlayerNotifyInfo(TGNS.GetPlayer(client), message)
+	roleMd:ToClientConsole(client, message)
 end
 
 local function CheckRoster()
@@ -123,11 +128,13 @@ local function CheckRoster()
 	local marinePlayers = TGNS.GetMarinePlayers(playerList)
 	local alienPlayers = TGNS.GetAlienPlayers(playerList)
 	local readyRoomPlayers = TGNS.GetReadyRoomPlayers(playerList)
+	local spectatorPlayers = TGNS.GetSpectatorPlayers(playerList)
 
 	TGNS.DoFor(roles, function(role)
 		EnsureAmongPlayers(readyRoomPlayers, role)
 		EnsureAmongPlayers(marinePlayers, role)
 		EnsureAmongPlayers(alienPlayers, role)
+		EnsureAmongPlayers(spectatorPlayers, role)
 	end)
 end
 
